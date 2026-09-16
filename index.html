@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Meu Livro</title>
+    <!-- PWA Manifest & Theme Color -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#78350f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Meu Livro">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome for Icons -->
@@ -50,6 +56,11 @@
             </nav>
 
             <div class="flex items-center space-x-2">
+                <!-- Indicador Visual de Sincronização -->
+                <div id="sync-indicator" class="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-stone-100 text-stone-600 transition-all border border-stone-200" title="Estado da Sincronização">
+                    <span id="sync-dot" class="w-2 h-2 rounded-full bg-stone-400"></span>
+                    <span id="sync-text">Verificando...</span>
+                </div>
                 <button onclick="app.openConfigModal()" class="p-2 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-colors" title="Configurar Google Sheets">
                     <i class="fa-solid fa-gear text-lg"></i>
                 </button>
@@ -164,6 +175,15 @@
                         <span>Nova Anotação</span>
                     </button>
                 </div>
+            </div>
+
+            <!-- Indicador Mobile para Sincronização -->
+            <div id="sync-indicator-mobile" class="sm:hidden flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-stone-200 text-xs font-medium text-stone-600">
+                <span class="text-stone-500">Status da Nuvem:</span>
+                <span id="sync-text-mobile" class="flex items-center space-x-1.5">
+                    <span id="sync-dot-mobile" class="w-2 h-2 rounded-full bg-stone-400"></span>
+                    <span id="sync-label-mobile">Verificando...</span>
+                </span>
             </div>
 
             <!-- Search & Filters Bar -->
@@ -313,34 +333,177 @@
     </div>
 
     <script>
+        // Camada IndexedDB para armazenamento robusto offline-first
+        class IndexedDBStorage {
+            constructor() {
+                this.dbName = 'MeuLivroOfflineDB';
+                this.storeName = 'notes';
+                this.db = null;
+            }
+
+            async init() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, 1);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        resolve(this.db);
+                    };
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains(this.storeName)) {
+                            const store = db.createObjectStore(this.storeName, { keyPath: 'id' });
+                            store.createIndex('syncStatus', 'syncStatus', { unique: false });
+                            store.createIndex('updatedAt', 'updatedAt', { unique: false });
+                        }
+                    };
+                });
+            }
+
+            async getAllNotes() {
+                if (!this.db) await this.init();
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(this.storeName, 'readonly');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.getAll();
+                    request.onsuccess = () => resolve(request.result || []);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async saveNote(note) {
+                if (!this.db) await this.init();
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(this.storeName, 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.put(note);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async saveAllNotes(notesArray) {
+                if (!this.db) await this.init();
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(this.storeName, 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    notesArray.forEach(note => store.put(note));
+                    transaction.oncomplete = () => resolve(true);
+                    transaction.onerror = () => reject(transaction.error);
+                });
+            }
+
+            async deleteNote(id) {
+                if (!this.db) await this.init();
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(this.storeName, 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.delete(id);
+                    request.onsuccess = () => resolve(true);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+        }
+
         class MeuLivroApp {
             constructor() {
-                this.notes = JSON.parse(localStorage.getItem('meulivro_notes')) || [
-                    {
+                this.storage = new IndexedDBStorage();
+                this.notes = [];
+                this.sheetsUrl = localStorage.getItem('meulivro_sheets_url') || 'https://script.google.com/macros/s/AKfycbw4fjt7pgnvcXtIwYhEI_8wQfajlzKdh5lcUdb_9RkIO6_rNfcZeVr5UZPQtfFOmYE1/exec';
+                this.currentView = 'home';
+                this.syncStatusState = 'synced'; // 'synced', 'pending', 'syncing', 'error'
+                this.init();
+            }
+
+            async init() {
+                await this.storage.init();
+                
+                // Migração inicial opcional de dados legados do localStorage para IndexedDB caso existam
+                const legacyNotes = localStorage.getItem('meulivro_notes');
+                if (legacyNotes) {
+                    try {
+                        const parsed = JSON.parse(legacyNotes);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            for (const n of parsed) {
+                                if (!n.syncStatus) n.syncStatus = 'synced';
+                                if (!n.updatedAt) n.updatedAt = Date.now();
+                                await this.storage.saveNote(n);
+                            }
+                        }
+                        localStorage.removeItem('meulivro_notes');
+                    } catch (e) {
+                        console.error('Erro na migração:', e);
+                    }
+                }
+
+                this.notes = await this.storage.getAllNotes();
+                
+                // Se estiver vazio, insere o registro inicial padrão
+                if (this.notes.length === 0) {
+                    const defaultNote = {
                         id: 'note_1',
                         datetime: '16/09/2026 14:30',
                         title: 'O Primeiro Passo',
                         text: 'Hoje decidi iniciar formalmente o meu diário. A sensação de colocar pensamentos no papel digital é libertadora e traz clareza para os objetivos.',
                         mood: 'Inspirado',
-                        tags: ['inicio', 'reflexao', 'vida']
-                    }
-                ];
-                // URL atualizada do Apps Script fornecida pelo usuário
-                this.sheetsUrl = localStorage.getItem('meulivro_sheets_url') || 'https://script.google.com/macros/s/AKfycbzIiplKLlMSWcuM49icTzrlfabdo_1wADuTXwgu7aEJcs-H8t7rh-3XajzQN9uGlnTS/exec';
-                this.currentView = 'home';
-                this.init();
-            }
+                        tags: ['inicio', 'reflexao', 'vida'],
+                        syncStatus: 'synced',
+                        updatedAt: Date.now()
+                    };
+                    await this.storage.saveNote(defaultNote);
+                    this.notes = [defaultNote];
+                }
 
-            async init() {
                 this.navigate('home');
                 this.updateStats();
                 this.renderNotes();
                 this.updateSyncStatusDisplay();
 
-                // Se houver URL configurada, tenta carregar dados remotos ao iniciar
-                if (this.sheetsUrl) {
-                    await this.syncWithSheets(true);
+                // Registrar Service Worker para PWA Offline (com proteção para ambientes blob/preview)
+                if ('serviceWorker' in navigator && window.location.protocol !== 'blob:') {
+                    try {
+                        await navigator.serviceWorker.register('sw.js');
+                        console.log('Service Worker registrado com sucesso.');
+                    } catch (err) {
+                        console.error('Falha ao registrar Service Worker:', err);
+                    }
                 }
+
+                // Listener para detecção automática de conexão online/offline
+                window.addEventListener('online', () => {
+                    this.showToast('Conexão restabelecida. Sincronizando...');
+                    this.syncWithSheets();
+                });
+                window.addEventListener('offline', () => {
+                    this.setSyncState('pending', '☁ Aguardando internet');
+                    this.showToast('Você está offline. Alterações salvas localmente.', 'error');
+                });
+
+                // Sincronização inicial se houver conexão
+                if (navigator.onLine && this.sheetsUrl) {
+                    await this.syncWithSheets(true);
+                } else if (!navigator.onLine) {
+                    this.setSyncState('pending', '☁ Aguardando internet');
+                }
+            }
+
+            setSyncState(state, label) {
+                this.syncStatusState = state;
+                const dot = document.getElementById('sync-dot');
+                const text = document.getElementById('sync-text');
+                const dotMob = document.getElementById('sync-dot-mobile');
+                const labelMob = document.getElementById('sync-label-mobile');
+
+                let dotColor = 'bg-stone-400';
+                if (state === 'synced') dotColor = 'bg-emerald-500';
+                else if (state === 'pending') dotColor = 'bg-amber-500';
+                else if (state === 'syncing') dotColor = 'bg-blue-500 animate-pulse';
+                else if (state === 'error') dotColor = 'bg-rose-500';
+
+                if (dot) dot.className = `w-2 h-2 rounded-full ${dotColor}`;
+                if (text) text.textContent = label;
+                if (dotMob) dotMob.className = `w-2 h-2 rounded-full ${dotColor}`;
+                if (labelMob) labelMob.textContent = label;
             }
 
             navigate(viewId) {
@@ -437,7 +600,7 @@
                 }
             }
 
-            saveNote(event) {
+            async saveNote(event) {
                 event.preventDefault();
                 const id = document.getElementById('note-id').value;
                 const title = document.getElementById('note-title').value.trim();
@@ -447,17 +610,20 @@
                 
                 const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0) : [];
 
+                let noteObj;
                 if (!id) {
-                    const newNote = {
+                    noteObj = {
                         id: 'note_' + Date.now(),
                         datetime: this.formatCurrentDateTime(),
                         title,
                         text,
                         mood,
-                        tags
+                        tags,
+                        syncStatus: 'pending',
+                        updatedAt: Date.now()
                     };
-                    this.notes.unshift(newNote);
-                    this.showToast('Anotação criada com sucesso!');
+                    this.notes.unshift(noteObj);
+                    this.showToast('Anotação salva localmente!');
                 } else {
                     const index = this.notes.findIndex(n => n.id === id);
                     if (index !== -1) {
@@ -465,49 +631,40 @@
                         this.notes[index].text = text;
                         this.notes[index].mood = mood;
                         this.notes[index].tags = tags;
-                        this.showToast('Anotação atualizada com sucesso!');
+                        this.notes[index].syncStatus = 'pending';
+                        this.notes[index].updatedAt = Date.now();
+                        noteObj = this.notes[index];
+                        this.showToast('Anotação atualizada localmente!');
                     }
                 }
 
-                this.persistData();
+                if (noteObj) {
+                    await this.storage.saveNote(noteObj);
+                }
+
                 this.closeModal();
                 this.renderNotes();
                 this.updateStats();
+                
+                // Tenta sincronizar se houver conexão
+                if (navigator.onLine && this.sheetsUrl) {
+                    this.syncWithSheets(true);
+                } else {
+                    this.setSyncState('pending', '☁ Aguardando internet');
+                }
             }
 
-            deleteNote(id) {
+            async deleteNote(id) {
                 if (confirm('Deseja realmente excluir esta anotação?')) {
                     this.notes = this.notes.filter(n => n.id !== id);
-                    this.persistData();
+                    await this.storage.deleteNote(id);
                     this.renderNotes();
                     this.updateStats();
                     this.showToast('Anotação excluída.');
-                }
-            }
-
-            persistData() {
-                localStorage.setItem('meulivro_notes', JSON.stringify(this.notes));
-                if (this.sheetsUrl) {
-                    this.syncToSheetsSilent();
-                }
-            }
-
-            async syncToSheetsSilent() {
-                if (!this.sheetsUrl) return;
-                try {
-                    const formData = new URLSearchParams();
-                    formData.append('postData', JSON.stringify(this.notes));
-
-                    await fetch(this.sheetsUrl, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: formData.toString()
-                    });
-                } catch (e) {
-                    console.error('Erro na sincronização silenciosa:', e);
+                    
+                    if (navigator.onLine && this.sheetsUrl) {
+                        this.syncWithSheets(true);
+                    }
                 }
             }
 
@@ -520,16 +677,24 @@
                     return;
                 }
 
+                if (!navigator.onLine) {
+                    this.setSyncState('pending', '☁ Aguardando internet');
+                    if (!silent) this.showToast('Sem conexão com a internet.', 'error');
+                    return;
+                }
+
+                this.setSyncState('syncing', '↻ Sincronizando...');
                 const btn = document.getElementById('sync-btn');
                 if (btn && !silent) {
                     btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i><span>Sincronizando...</span>`;
                 }
                 
                 try {
+                    // Envia todas as notas locais para o Apps Script (o script substitui mantendo o ID único para evitar duplicatas)
                     const formData = new URLSearchParams();
                     formData.append('postData', JSON.stringify(this.notes));
 
-                    await fetch(this.sheetsUrl, {
+                    const response = await fetch(this.sheetsUrl, {
                         method: 'POST',
                         mode: 'no-cors',
                         headers: {
@@ -538,6 +703,13 @@
                         body: formData.toString()
                     });
 
+                    // Marca todas as notas locais como sincronizadas
+                    for (let n of this.notes) {
+                        n.syncStatus = 'synced';
+                        await this.storage.saveNote(n);
+                    }
+
+                    this.setSyncState('synced', '✓ Sincronizado');
                     if (btn && !silent) {
                         btn.innerHTML = `<i class="fa-solid fa-rotate"></i><span>Sincronizar Sheets</span>`;
                     }
@@ -545,6 +717,12 @@
                         this.showToast('Dados sincronizados com o Google Sheets!');
                     }
                 } catch (error) {
+                    console.error('Erro na sincronização:', error);
+                    for (let n of this.notes) {
+                        if (n.syncStatus === 'pending') n.syncStatus = 'error';
+                        await this.storage.saveNote(n);
+                    }
+                    this.setSyncState('error', '⚠ Erro ao sincronizar');
                     if (btn && !silent) {
                         btn.innerHTML = `<i class="fa-solid fa-rotate"></i><span>Sincronizar Sheets</span>`;
                     }
@@ -611,15 +789,25 @@
                 const tagsArr = Array.isArray(n.tags) ? n.tags : (typeof n.tags === 'string' && n.tags ? n.tags.split(',').map(t=>t.trim()) : []);
                 const tagsHTML = tagsArr.map(t => `<span class="px-2 py-0.5 bg-stone-100 text-stone-600 rounded-md text-[11px] font-medium">#${t}</span>`).join('');
 
+                let syncBadge = '';
+                if (n.syncStatus === 'pending') {
+                    syncBadge = `<span class="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-medium" title="Pendente de sincronização">☁ Pendente</span>`;
+                } else if (n.syncStatus === 'error') {
+                    syncBadge = `<span class="text-[10px] px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-medium" title="Erro ao sincronizar">⚠ Erro Sync</span>`;
+                }
+
                 return `
                     <div class="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4">
                         <div class="space-y-2">
                             <div class="flex items-center justify-between text-xs text-stone-500">
                                 <span class="font-medium">${n.datetime}</span>
-                                <span class="px-2.5 py-1 bg-amber-50 text-amber-900 rounded-full font-medium flex items-center space-x-1">
-                                    <span>${moodEmoji}</span>
-                                    <span>${n.mood}</span>
-                                </span>
+                                <div class="flex items-center space-x-2">
+                                    ${syncBadge}
+                                    <span class="px-2.5 py-1 bg-amber-50 text-amber-900 rounded-full font-medium flex items-center space-x-1">
+                                        <span>${moodEmoji}</span>
+                                        <span>${n.mood}</span>
+                                    </span>
+                                </div>
                             </div>
                             <h4 class="font-serif text-lg font-bold text-stone-900 leading-snug">${this.escapeHTML(n.title)}</h4>
                             <p class="text-stone-600 text-sm line-clamp-3 leading-relaxed">${this.escapeHTML(n.text)}</p>
@@ -656,11 +844,8 @@
                     return;
                 }
 
-                // Agrupando cronologicamente por mês/ano
                 const chaptersMap = {};
-                // Ordena notas da mais antiga para a mais recente para formar o livro em ordem cronológica
                 const sortedNotes = [...this.notes].sort((a, b) => {
-                    // Formato DD/MM/YYYY HH:mm
                     const parseDate = (dStr) => {
                         if (!dStr) return 0;
                         const parts = dStr.split(' ');
