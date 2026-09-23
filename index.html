@@ -217,37 +217,65 @@
         </section>
 
         <!-- View: Book (Transformar em Livro) -->
-        <section id="view-book" class="view-section hidden space-y-6 animate-fade">
-            <div class="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm text-center max-w-2xl mx-auto space-y-6">
-                <div class="w-16 h-16 bg-amber-50 text-amber-800 rounded-2xl mx-auto flex items-center justify-center text-2xl shadow-inner">
-                    <i class="fa-solid fa-book-bookmark"></i>
-                </div>
-                <div class="space-y-2">
-                    <h2 class="font-serif text-3xl font-bold text-stone-900">Transformar em Livro</h2>
-                    <p class="text-stone-600 text-sm leading-relaxed">
-                        Este módulo organiza automaticamente todas as suas anotações cronologicamente, dividindo-as em capítulos temáticos e mensais prontos para leitura ou publicação pessoal.
-                    </p>
-                </div>
-                <div class="pt-2">
-                    <button onclick="app.previewBookChapters()" class="bg-amber-700 hover:bg-amber-800 text-white px-6 py-3 rounded-xl font-medium text-sm transition-all shadow-md">
-                        Gerar e Visualizar Capítulos do Livro
-                    </button>
-                </div>
-            </div>
+        <section id="view-book" class="view-section hidden animate-fade">
 
-            <div id="book-preview-container" class="hidden space-y-6 max-w-3xl mx-auto">
-                <div class="flex items-center justify-between">
-                    <h3 class="font-serif text-2xl font-bold text-stone-900">Manuscrito Cronológico</h3>
-                    <button onclick="window.print()" class="text-sm bg-white border border-stone-300 text-stone-700 px-4 py-2 rounded-xl shadow-sm hover:bg-stone-50 flex items-center space-x-2">
-                        <i class="fa-solid fa-print"></i>
-                        <span>Imprimir / Salvar PDF</span>
-                    </button>
-                </div>
-                <div id="chapters-list" class="space-y-6">
-                    <!-- Renderizado dinamicamente -->
-                </div>
-            </div>
-        </section>
+    <div class="min-h-[80vh] flex items-center justify-center p-6 gap-4">
+
+        <button
+            onclick="app.previousBookPage()"
+            class="text-stone-400 hover:text-stone-800 text-3xl p-4 transition"
+        >
+            <i class="fa-solid fa-chevron-left"></i>
+        </button>
+
+        <div id="book-cover">
+            <img
+                src="assets/capa.png"
+                alt="Capa do livro"
+                class="w-auto h-[75vh] shadow-2xl rounded-sm"
+            >
+        </div>
+
+        <div
+            id="book-page"
+            class="relative hidden"
+            style="height: 75vh; aspect-ratio: 3 / 4;"
+        >
+            <img
+                src="assets/pagina-1.png"
+                class="absolute inset-0 w-full h-full object-cover"
+                alt=""
+            >
+
+            <div class="absolute inset-0 text-white">
+
+    <!-- ÁREA SEGURA DO CONTEÚDO -->
+    <div
+    id="book-safe-area"
+    class="absolute"
+    style="
+        top: 14%;
+        left: 12%;
+        width: 76%;
+        height: 72%;
+overflow: hidden;    "
+>
+    <div id="book-entries" class="space-y-6"></div>
+</div>
+
+</div>
+        </div>
+
+        <button
+            onclick="app.nextBookPage()"
+            class="text-stone-400 hover:text-stone-800 text-3xl p-4 transition"
+        >
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>
+
+    </div>
+
+</section>
 
     </main>
 
@@ -272,12 +300,14 @@
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1">Humor</label>
                         <select id="note-mood" class="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 focus:bg-white">
-                            <option value="Feliz">Feliz 🌟</option>
-                            <option value="Inspirado">Inspirado 💡</option>
-                            <option value="Reflexivo" selected>Reflexivo 🌿</option>
-                            <option value="Neutro">Neutro ☕</option>
-                            <option value="Cansado">Cansado 🌧️</option>
-                            <option value="Desafiado">Desafiado 🔥</option>
+                            <option value="Feliz">Feliz </option>
+                            <option value="Inspirado">Inspirado </option>
+                            <option value="Reflexivo" selected>Reflexivo </option>
+                            <option value="Neutro">Neutro </option>
+                            <option value="Cansado">Cansado </option>
+                            <option value="Desafiado">Desafiado </option>
+                            <option value="triste">triste</option>
+                            </option>
                         </select>
                     </div>
                     <div>
@@ -409,11 +439,26 @@
             constructor() {
                 this.storage = new IndexedDBStorage();
                 this.notes = [];
-                this.sheetsUrl = localStorage.getItem('meulivro_sheets_url') || 'https://script.google.com/macros/s/AKfycbw4fjt7pgnvcXtIwYhEI_8wQfajlzKdh5lcUdb_9RkIO6_rNfcZeVr5UZPQtfFOmYE1/exec';
+                this.sheetsUrl = localStorage.getItem('meulivro_sheets_url') || 'https://script.google.com/macros/s/AKfycbwvl9HNEgRMIf6uz1HTvFTjjNFMHnHKkzIUGF41WiPpXJS6HnVISLsYhSIiIFSw0Pxh/exec';
                 this.currentView = 'home';
                 this.syncStatusState = 'synced'; // 'synced', 'pending', 'syncing', 'error'
+                this.bookPage = 0;
+                console.log('APP NOVO');
                 this.init();
+                
             }
+
+            previousBookPage() {
+    this.bookPage--;
+
+    if (this.bookPage < 0) {
+        this.bookPage = 0;
+    }
+
+    this.showBookPage();
+
+    console.log('Página atual:', this.bookPage);
+}
 
             async init() {
                 await this.storage.init();
@@ -436,7 +481,7 @@
                     }
                 }
 
-                this.notes = await this.storage.getAllNotes();
+                await this.loadNotesFromSheets();
                 
                 // Se estiver vazio, insere o registro inicial padrão
                 if (this.notes.length === 0) {
@@ -469,6 +514,8 @@
                     }
                 }
 
+                
+
                 // Listener para detecção automática de conexão online/offline
                 window.addEventListener('online', () => {
                     this.showToast('Conexão restabelecida. Sincronizando...');
@@ -481,10 +528,10 @@
 
                 // Sincronização inicial se houver conexão
                 if (navigator.onLine && this.sheetsUrl) {
-                    await this.syncWithSheets(true);
-                } else if (!navigator.onLine) {
-                    this.setSyncState('pending', '☁ Aguardando internet');
-                }
+    this.setSyncState('synced', '✓ Sincronizado');
+} else if (!navigator.onLine) {
+    this.setSyncState('pending', '☁ Aguardando internet');
+}
             }
 
             setSyncState(state, label) {
@@ -505,10 +552,242 @@
                 if (dotMob) dotMob.className = `w-2 h-2 rounded-full ${dotColor}`;
                 if (labelMob) labelMob.textContent = label;
             }
+buildBookPages() {
+    this.bookPages = [
+        { type: 'cover' }
+    ];
 
-            navigate(viewId) {
-                this.currentView = viewId;
-                document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+    let currentPage = {
+        type: 'entries',
+        entries: []
+    };
+
+    for (const note of this.notes) {
+        currentPage.entries.push(note);
+
+        if (currentPage.entries.length === 3) {
+            this.bookPages.push(currentPage);
+
+            currentPage = {
+                type: 'entries',
+                entries: []
+            };
+        }
+    }
+
+    if (currentPage.entries.length > 0) {
+        this.bookPages.push(currentPage);
+    }
+
+    console.log('🔥 Páginas base:', this.bookPages.length);
+    console.log('📚 Estrutura:', this.bookPages);
+}
+
+async measureBookEntries(entries) {
+    const entriesContainer = document.getElementById('book-entries');
+    const safeArea = document.getElementById('book-safe-area');
+
+    entriesContainer.innerHTML = '';
+
+    entries.forEach(entry => {
+        const article = document.createElement('div');
+
+        article.className = 'mb-8';
+
+        article.innerHTML = `
+            <p class="font-serif text-xs tracking-widest opacity-60 uppercase mb-3">
+    ${entry.datetime || ''}
+</p>
+
+${entry.title && entry.title !== '.' ? `
+    <h2 class="font-serif text-xl font-semibold tracking-wide mb-3">
+        ${entry.title}
+    </h2>
+
+    <div class="w-12 border-b border-white/40 mb-4"></div>
+` : ''}
+
+            <p class="font-serif text-[17px] leading-8">
+    ${entry.text || ''}
+</p>
+        `;
+
+        entriesContainer.appendChild(article);
+    });
+
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    return {
+        height: entriesContainer.scrollHeight,
+        limit: safeArea.clientHeight
+    };
+}
+
+async paginateBook() {
+    const bookView = document.getElementById('view-book');
+    const page = document.getElementById('book-page');
+
+    bookView.classList.remove('hidden');
+    page.classList.remove('hidden');
+
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    this.bookPages = [
+        { type: 'cover' }
+    ];
+
+    let currentEntries = [];
+
+    for (const note of this.notes) {
+        const testEntries = [...currentEntries, note];
+
+        const medida = await this.measureBookEntries(testEntries);
+
+        console.log(
+            '🧪 Testando página:',
+            testEntries.length,
+            'notas |',
+            medida.height,
+            '/',
+            medida.limit
+        );
+
+        if (medida.height <= medida.limit) {
+            currentEntries.push(note);
+        } else {
+            if (currentEntries.length > 0) {
+                this.bookPages.push({
+                    type: 'entries',
+                    entries: currentEntries
+                });
+            }
+
+            const noteMedida = await this.measureBookEntries([note]);
+
+            if (noteMedida.height <= noteMedida.limit) {
+                currentEntries = [note];
+            } else {
+                const partes = await this.splitNoteToFit(note);
+
+                console.log('✂️ Nota dividida:', partes);   
+
+                this.bookPages.push({
+                    type: 'entries',
+                    entries: [{
+                        ...note,
+                        text: partes.first
+                    }]
+                });
+
+                currentEntries = [];
+
+                if (partes.rest) {
+                    currentEntries.push({
+                        ...note,
+                        text: partes.rest
+                    });
+                }
+            }
+        }
+    }
+
+    if (currentEntries.length > 0) {
+        this.bookPages.push({
+            type: 'entries',
+            entries: currentEntries
+        });
+    }
+
+    console.log('📚 Paginação automática:', this.bookPages);
+}
+
+async splitNoteToFit(note) {
+    const words = (note.text || '').split(/\s+/);
+
+    let visibleText = '';
+
+    for (let i = 0; i < words.length; i++) {
+        const testText = visibleText
+            ? visibleText + ' ' + words[i]
+            : words[i];
+
+        const testNote = {
+            ...note,
+            text: testText
+        };
+
+        const medida = await this.measureBookEntries([testNote]);
+
+        if (medida.height > medida.limit) {
+            return {
+                first: visibleText,
+                rest: words.slice(i).join(' ')
+            };
+        }
+
+        visibleText = testText;
+    }
+
+    return {
+        first: visibleText,
+        rest: ''
+    };
+}
+
+async showBookPage() {
+    const cover = document.getElementById('book-cover');
+    const page = document.getElementById('book-page');
+    const entriesContainer = document.getElementById('book-entries');
+    const safeArea = document.getElementById('book-safe-area');
+
+    if (this.bookPage === 0) {
+        cover.classList.remove('hidden');
+        page.classList.add('hidden');
+        return;
+    }
+
+    cover.classList.add('hidden');
+page.classList.remove('hidden');
+
+const currentPage = this.bookPages[this.bookPage];
+
+const medida = await this.measureBookEntries(currentPage.entries);
+
+console.log('📏 Medida da página:', medida);
+
+
+
+    console.log(
+        '📖 Página atual:',
+        this.bookPage,
+        '| altura:',
+        entriesContainer.scrollHeight,
+        '/',
+        safeArea.clientHeight
+    );
+}
+
+            nextBookPage() {
+    this.bookPage++;
+
+    if (this.bookPage >= this.bookPages.length) {
+        this.bookPage = this.bookPages.length - 1;
+    }
+
+    this.showBookPage();
+
+    console.log('Página atual:', this.bookPage);
+}
+
+navigate(viewId) {
+    this.currentView = viewId;
+
+    if (viewId === 'book') {
+    this.bookPage = 0;
+    this.showBookPage();
+}
+
+    document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
                 document.getElementById(`view-${viewId}`).classList.remove('hidden');
 
                 document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -578,7 +857,79 @@
             closeConfigModal() {
                 document.getElementById('config-modal').classList.add('hidden');
             }
+async loadNotesFromSheets() {
+    try {
+        const response = await fetch(this.sheetsUrl);
 
+        const notes = await response.json();
+
+        if (!Array.isArray(notes)) {
+            throw new Error('Resposta inválida do Google Sheets');
+        }
+
+        this.notes = notes.map(note => ({
+            ...note,
+            datetime: decodeURIComponent(String(note.datetime || '').replace(/\+/g, ' ')),
+            title: decodeURIComponent(String(note.title || '').replace(/\+/g, ' ')),
+            text: decodeURIComponent(String(note.text || '').replace(/\+/g, ' ')),
+            mood: decodeURIComponent(String(note.mood || '').replace(/\+/g, ' ')),
+            tags: Array.isArray(note.tags)
+                ? note.tags.map(tag =>
+                    decodeURIComponent(String(tag || '').replace(/\+/g, ' '))
+                )
+                : [],
+            syncStatus: 'synced',
+            updatedAt: Date.now()
+        }));
+
+        this.notes.sort((a, b) => {
+            const parseDate = date => {
+                const [day, month, yearAndTime] = date.split('/');
+                const [year, time] = yearAndTime.split(' ');
+                return new Date(`${year}-${month}-${day}T${time || '00:00'}`);
+            };
+
+            return parseDate(a.datetime) - parseDate(b.datetime);
+        });
+
+        for (const note of this.notes) {
+            await this.storage.saveNote(note);
+        }
+
+        await this.paginateBook();
+
+        console.log('☁️ Notas carregadas do Google Sheets:', this.notes);
+
+    } catch (error) {
+
+        console.warn('☁️ Google Sheets indisponível. Usando notas locais.', error);
+
+        try {
+            const localNotes = await this.storage.getAllNotes();
+
+            this.notes = localNotes;
+
+            this.notes.sort((a, b) => {
+                const parseDate = date => {
+                    const [day, month, yearAndTime] = date.split('/');
+                    const [year, time] = yearAndTime.split(' ');
+                    return new Date(`${year}-${month}-${day}T${time || '00:00'}`);
+                };
+
+                return parseDate(a.datetime) - parseDate(b.datetime);
+            });
+
+            await this.paginateBook();
+
+            this.setSyncState('pending', '☁ Modo offline');
+
+            console.log('💾 Notas carregadas do IndexedDB:', this.notes);
+
+        } catch (localError) {
+            console.error('Erro ao carregar notas locais:', localError);
+        }
+    }
+}
             saveConfig() {
                 const url = document.getElementById('sheets-url-input').value.trim();
                 this.sheetsUrl = url;
@@ -691,8 +1042,17 @@
                 
                 try {
                     // Envia todas as notas locais para o Apps Script (o script substitui mantendo o ID único para evitar duplicatas)
-                    const formData = new URLSearchParams();
-                    formData.append('postData', JSON.stringify(this.notes));
+                    const pendingNotes = this.notes.filter(
+    n => n.syncStatus === 'pending'
+);
+
+if (pendingNotes.length === 0) {
+    this.setSyncState('synced', '✓ Tudo sincronizado');
+    return;
+}
+
+const formData = new URLSearchParams();
+formData.append('postData', JSON.stringify(pendingNotes));
 
                     const response = await fetch(this.sheetsUrl, {
                         method: 'POST',
@@ -704,7 +1064,7 @@
                     });
 
                     // Marca todas as notas locais como sincronizadas
-                    for (let n of this.notes) {
+                    for (let n of pendingNotes) {
                         n.syncStatus = 'synced';
                         await this.storage.saveNote(n);
                     }
@@ -761,12 +1121,13 @@
                 });
 
                 const homeList = document.getElementById('home-recent-list');
-                const recentSlice = this.notes.slice(0, 3);
-                if (recentSlice.length === 0) {
-                    homeList.innerHTML = `<div class="col-span-full py-8 text-center text-stone-500 text-sm">Nenhuma anotação registrada ainda. Crie a primeira!</div>`;
-                } else {
-                    homeList.innerHTML = recentSlice.map(n => this.generateCardHTML(n)).join('');
-                }
+                const recentNotes = this.notes.slice(-3).reverse();
+
+if (recentNotes.length === 0) {
+    homeList.innerHTML = `<div class="col-span-full py-8 text-center text-stone-500 text-sm">Nenhuma anotação registrada ainda. Crie a primeira!</div>`;
+} else {
+    homeList.innerHTML = recentNotes.map(n => this.generateCardHTML(n)).join('');
+}
 
                 const notesGrid = document.getElementById('notes-grid');
                 if (filtered.length === 0) {
@@ -896,11 +1257,18 @@
             }
 
             escapeHTML(str) {
-                if (!str) return '';
-                return str.replace(/[&<>'"]/g, 
-                    tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-                );
-            }
+    if (!str) return '';
+
+    return str.replace(/[&<>'"]/g,
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
 
             showToast(msg, type = 'success') {
                 const toast = document.getElementById('toast');
